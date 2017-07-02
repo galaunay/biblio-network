@@ -23,6 +23,7 @@ class BiblioNetwork():
         self._auth_betw_computed_from = 0
         self.layout_pos = None
         self.graph = None
+        self.author_list = []
 
     @staticmethod
     def _split_authors(row):
@@ -36,17 +37,29 @@ class BiblioNetwork():
         "Parse the database csv file"
         # import database
         self.db = pd.read_csv(self.filepath, ",", index_col=False,
-                              nrows=nmb_to_import)
+                              nrows=nmb_to_import, encoding="ISO8859")
         self.db.reset_index()
         # separate authors
         self.db['Authors'] = self.db.apply(self._split_authors, axis=1)
         # Replace missing values
         self.db['Cited by'].fillna(0, inplace=True)
+        # Updat author list
+        self.update_author_list()
 
     def clean(self, min_citations=10):
         "Remove some entries"
+        len_bef = len(self.db)
         self.db.drop(self.db[self.db["Cited by"] < min_citations].index,
                      inplace=True)
+        len_after = len(self.db)
+        print("    Removed {} articles, {} remaining".format(len_bef-len_after,
+                                                            len_after))
+        self.update_author_list()
+        self._auth_betw = None
+
+    def update_author_list(self):
+        auths = list(set(np.concatenate(self.db['Authors'].values)))
+        self.author_list = np.sort(auths)
 
     @property
     def author_betweeness(self):
@@ -57,22 +70,16 @@ class BiblioNetwork():
             return self._auth_betw
         # else compute it
         self._auth_betw_computed_from = len(self.db)
-        auth_betw = {}
+        auth_betw = {auth: {}
+                     for auth in self.author_list}
         for auths in self.db['Authors']:
             # skip if only one author
             if len(auths) == 1:
                 continue
             # Loop on authors couples
             for i1, auth1 in enumerate(auths):
-                for auth2 in auths[i1::]:
-                    if auth1 == auth2:
-                        continue
+                for auth2 in auths[i1+1::]:
                     keys = auth_betw.keys()
-                    # create author if necessary
-                    if auth1 not in keys:
-                        auth_betw[auth1] = {}
-                    if auth2 not in keys:
-                        auth_betw[auth2] = {}
                     # create couple if necessary, or increment
                     if auth2 not in auth_betw[auth1].keys():
                         auth_betw[auth1][auth2] = 1
@@ -124,6 +131,12 @@ class BiblioNetwork():
                     auth2pub[auth] = [art.name]
         return auth2pub
 
+    def write_author_list(self, filepath):
+        with open(filepath, "w") as f:
+            data = ['{}: {}\n'.format(i, auth)
+                    for i, auth in enumerate(self.author_list)]
+            f.writelines(data)
+
     def make_article_graph(self, layout="arf"):
         """Make an article graph"""
         self.graph = Graph(directed=False)
@@ -159,7 +172,7 @@ class BiblioNetwork():
         """Make an author graph"""
         self.graph = Graph(directed=False)
         # add vertex
-        auths = list(self.author_betweeness.keys())
+        auths = self.author_list
         self.graph.add_vertex(len(auths))
         # add links
         auth2ind = {auths[i]: i
@@ -168,6 +181,8 @@ class BiblioNetwork():
         authbet = copy.deepcopy(self.author_betweeness)
         for auth in auths:
             for col, weight in authbet[auth].items():
+                if col == auth:
+                    continue
                 self.graph.add_edge(auth2ind[auth], auth2ind[col])
                 del authbet[col][auth]  # ensure that edges are not doubled
                 abet.append(weight)
@@ -177,10 +192,13 @@ class BiblioNetwork():
         # layout
         if layout == "arf":
             self.layout_pos = arf_layout(self.graph,
-                                         weight=self.graph.ep.weight)
+                                         weight=self.graph.ep.weight,
+                                         pos=self.layout_pos,
+                                         max_iter=10000)
         elif layout == "sfpd":
             self.layout_pos = sfdp_layout(self.graph,
-                                          eweight=self.graph.ep.weight)
+                                          eweight=self.graph.ep.weight,
+                                          pos=self.layout_pos)
         elif layout == "fr":
             self.layout_pos = fruchterman_reingold_layout(self.graph,
                                                           weight=self.graph.ep.weight,
@@ -208,12 +226,14 @@ class BiblioNetwork():
                    vertex_fill_color=self.graph.vp.nmb_citation,
                    vcmap=plt.cm.viridis)
 
-    def display_author_graph(self, out="graph.pdf", min_size=1, max_size=10):
+    def display_author_graph(self, out="graph.pdf", min_size=1, max_size=10,
+                             indice=False):
         """Display an author graph"""
+        auths = self.author_list
         nc = self.get_total_citation()
-        nc = [int(nc[auth]) for auth in self.author_betweeness.keys()]
+        nc = [int(nc[auth]) for auth in auths]
         na = self.get_auth_nmb_of_art()
-        na = [int(na[auth]) for auth in self.author_betweeness.keys()]
+        na = [int(na[auth]) for auth in auths]
         # normalize citation number
         nc = np.array(nc, dtype=float)
         nc /= np.max(nc)
@@ -224,26 +244,40 @@ class BiblioNetwork():
         weight /= np.max(weight)
         weight *= (1 - 0.1)
         weight += 0.1
+        # Get vertex display order
+        vorder = np.argsort(nc)
+        # Get index
+        if indice:
+            text = range(len(vorder))
+            textg = self.graph.new_vertex_property('string', text)
+        else:
+            textg = None
         # plot
         ncg = self.graph.new_vertex_property('float', nc)
         nag = self.graph.new_vertex_property('int', na)
+        vorderg = self.graph.new_vertex_property('int', vorder)
         weightg = self.graph.new_edge_property('float', weight)
         self.graph.vp['nmb_citation'] = ncg
         graph_draw(self.graph, pos=self.layout_pos, output=out,
                    vertex_fill_color=nag, vertex_size=ncg,
-                   edge_pen_width=weightg,
+                   edge_pen_width=weightg, vertex_text=textg,
+                   vorder=vorderg,
+                   vertex_text_position=0,
                    vcmap=plt.cm.PuBu)
 
 
 print("=== Importing")
-csvi = BiblioNetwork('database.csv')
-csvi.parse(nmb_to_import=None)
-print("=== Cleaning")
-csvi.clean(min_citations=30)
-layouts = ['sfpd', 'arf', 'fr', 'radial']
+layouts = ['arf', 'sfpd', 'fr', 'radial']
+layouts = ['arf']
 for layout in layouts:
+    csvi = BiblioNetwork('database_gaby')
+    csvi.parse(nmb_to_import=None)
+    print("=== Cleaning")
+    csvi.clean(min_citations=50)
     print("=== Make {} graph".format(layout))
     csvi.make_author_graph(layout=layout)
-    print("=== Display graph")
+    print("=== Display {} graph".format(layout))
     csvi.display_author_graph(min_size=3, max_size=30,
-                              out="graph_{}.pdf".format(layout))
+                              out="graph_gaby_{}.pdf".format(layout),
+                              indice=False)
+    # csvi.write_author_list("index_authors.txt")
