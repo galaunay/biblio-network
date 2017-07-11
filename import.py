@@ -1,4 +1,30 @@
-#! /bin/python
+# -*- coding: utf-8 -*-
+#!/usr/env python3
+
+# Copyright (C) 2017 Gaby Launay
+
+# Author: Gaby Launay  <gaby.launay@tutanota.com>
+
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 3
+# of the License, or (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+""" Python tool to make bibliographic networks """
+
+__author__ = "Gaby Launay"
+__copyright__ = "Gaby Launay 2017"
+__license__ = "GPL3"
+__email__ = "gaby.launay@tutanota.com"
+__status__ = "Development"
 
 import copy
 import itertools
@@ -37,7 +63,9 @@ class BiblioNetwork():
         "Parse the database csv file"
         # import database
         self.db = pd.read_csv(self.filepath, ",", index_col=False,
-                              nrows=nmb_to_import, encoding="ISO8859")
+                              nrows=nmb_to_import, encoding="ISO8859",
+                              error_bad_lines=False,
+                              warn_bad_lines=True)
         self.db.reset_index()
         # separate authors
         self.db['Authors'] = self.db.apply(self._split_authors, axis=1)
@@ -98,16 +126,16 @@ class BiblioNetwork():
 
     def get_total_citation(self):
         """ Return total number of citations for each author"""
-        nmbcit = {}
+        nmbcits = {}
         for _, art in self.db.iterrows():
             auths = art['Authors']
-            tmp_nmbcit = int(art['Cited by'])
+            nmbcit = int(art['Cited by'])
             for auth in auths:
-                if auth in nmbcit.keys():
-                    nmbcit[auth] += tmp_nmbcit
+                if auth in nmbcits.keys():
+                    nmbcits[auth] += nmbcit
                 else:
-                    nmbcit[auth] = tmp_nmbcit
-        return nmbcit
+                    nmbcits[auth] = nmbcit
+        return nmbcits
 
     def get_auth_nmb_of_art(self):
         """ Return number of article for each author"""
@@ -216,10 +244,11 @@ class BiblioNetwork():
         else:
             raise ValueError()
 
-    def display_article_graph(self, out="graph.pdf", size=10):
+    def display_article_graph(self, out="graph.pdf", min_size=1,
+                              max_size=10, indice=False):
         """Display an article graph"""
         cb = np.log(np.array(self.graph.vp.nmb_citation.a)+2)
-        ms = cb/max(cb)*size
+        ms = cb/max(cb)*(max_size - min_size) + min_size
         ms = self.graph.new_vertex_property('float', ms)
         graph_draw(self.graph, pos=self.layout_pos, output=out,
                    vertex_size=ms,
@@ -273,11 +302,19 @@ for layout in layouts:
     csvi = BiblioNetwork('database_gaby')
     csvi.parse(nmb_to_import=None)
     print("=== Cleaning")
-    csvi.clean(min_citations=50)
+    csvi.clean(min_citations=25)
+    # # by author
+    # print("=== Make {} graph".format(layout))
+    # csvi.make_author_graph(layout=layout)
+    # print("=== Display {} graph".format(layout))
+    # csvi.display_author_graph(min_size=3, max_size=30,
+    #                           out="graph_gaby_{}.pdf".format(layout),
+    #                           indice=True)
+    # csvi.write_author_list("index_authors_gaby.txt")
+    # by article
     print("=== Make {} graph".format(layout))
-    csvi.make_author_graph(layout=layout)
+    csvi.make_article_graph(layout=layout)
     print("=== Display {} graph".format(layout))
-    csvi.display_author_graph(min_size=3, max_size=30,
-                              out="graph_gaby_{}.pdf".format(layout),
-                              indice=False)
-    # csvi.write_author_list("index_authors.txt")
+    csvi.display_article_graph(min_size=3, max_size=30,
+                               out="graph_gaby_{}.pdf".format(layout),
+                               indice=True)
