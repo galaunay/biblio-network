@@ -1,1 +1,6 @@
 /flycheck_import.py
+*.pdf
+/index_authors.txt
+/index_authors_gaby.txt
+/database_gaby
+/database.csv

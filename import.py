@@ -59,13 +59,12 @@ class BiblioNetwork():
                 for i in range(int(len(auth)/2))]
         return auth
 
-    def parse(self, nmb_to_import=None):
+    def parse(self, nmb_to_import=None, delimiter=","):
         "Parse the database csv file"
         # import database
-        self.db = pd.read_csv(self.filepath, ",", index_col=False,
+        self.db = pd.read_csv(self.filepath, delimiter, index_col=False,
                               nrows=nmb_to_import, encoding="ISO8859",
-                              error_bad_lines=False,
-                              warn_bad_lines=True)
+                              error_bad_lines=False, warn_bad_lines=True)
         self.db.reset_index()
         # separate authors
         self.db['Authors'] = self.db.apply(self._split_authors, axis=1)
@@ -81,11 +80,34 @@ class BiblioNetwork():
                      inplace=True)
         len_after = len(self.db)
         print("    Removed {} articles, {} remaining".format(len_bef-len_after,
-                                                            len_after))
+                                                             len_after))
+        self.update_author_list()
+        self._auth_betw = None
+
+    def remove_anterior(self, year):
+        "Remove some entries"
+        len_bef = len(self.db)
+        self.db.drop(self.db[self.db["Year"] <= year].index,
+                     inplace=True)
+        len_after = len(self.db)
+        print("    Removed {} articles, {} remaining".format(len_bef-len_after,
+                                                             len_after))
+        self.update_author_list()
+        self._auth_betw = None
+
+    def remove_posterior(self, year):
+        "Remove some entries"
+        len_bef = len(self.db)
+        self.db.drop(self.db[self.db["Year"] > year].index,
+                     inplace=True)
+        len_after = len(self.db)
+        print("    Removed {} articles, {} remaining".format(len_bef-len_after,
+                                                             len_after))
         self.update_author_list()
         self._auth_betw = None
 
     def update_author_list(self):
+        "Update author list from database"
         auths = list(set(np.concatenate(self.db['Authors'].values)))
         self.author_list = np.sort(auths)
 
@@ -246,7 +268,11 @@ class BiblioNetwork():
 
     def display_article_graph(self, out="graph.pdf", min_size=1,
                               max_size=10, indice=False):
-        """Display an article graph"""
+        """Display an article graph
+
+        One point per article.
+        Size and color corespond to the number of citation.
+        """
         cb = np.log(np.array(self.graph.vp.nmb_citation.a)+2)
         ms = cb/max(cb)*(max_size - min_size) + min_size
         ms = self.graph.new_vertex_property('float', ms)
@@ -257,7 +283,7 @@ class BiblioNetwork():
 
     def display_author_graph(self, out="graph.pdf", min_size=1, max_size=10,
                              indice=False):
-        """Display an author graph"""
+        """Display an author graph """
         auths = self.author_list
         nc = self.get_total_citation()
         nc = [int(nc[auth]) for auth in auths]
@@ -299,22 +325,23 @@ print("=== Importing")
 layouts = ['arf', 'sfpd', 'fr', 'radial']
 layouts = ['arf']
 for layout in layouts:
-    csvi = BiblioNetwork('database_gaby')
-    csvi.parse(nmb_to_import=None)
+    csvi = BiblioNetwork('database.csv')
+    csvi.parse(nmb_to_import=None, delimiter=";")
     print("=== Cleaning")
-    csvi.clean(min_citations=25)
-    # # by author
-    # print("=== Make {} graph".format(layout))
-    # csvi.make_author_graph(layout=layout)
-    # print("=== Display {} graph".format(layout))
-    # csvi.display_author_graph(min_size=3, max_size=30,
-    #                           out="graph_gaby_{}.pdf".format(layout),
-    #                           indice=True)
-    # csvi.write_author_list("index_authors_gaby.txt")
-    # by article
+    csvi.remove_posterior(2006)
+    # csvi.clean(min_citations=75)
+    # by author
     print("=== Make {} graph".format(layout))
-    csvi.make_article_graph(layout=layout)
+    csvi.make_author_graph(layout=layout)
     print("=== Display {} graph".format(layout))
-    csvi.display_article_graph(min_size=3, max_size=30,
-                               out="graph_gaby_{}.pdf".format(layout),
-                               indice=True)
+    csvi.display_author_graph(min_size=3, max_size=30,
+                              out="graph_{}.pdf".format(layout),
+                              indice=True)
+    csvi.write_author_list("index_authors.txt")
+    # # by article
+    # print("=== Make {} graph".format(layout))
+    # csvi.make_article_graph(layout=layout)
+    # print("=== Display {} graph".format(layout))
+    # csvi.display_article_graph(min_size=3, max_size=30,
+    #                            out="graph_{}.pdf".format(layout),
+    #                            indice=True)
